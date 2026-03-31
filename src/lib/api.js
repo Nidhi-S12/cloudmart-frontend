@@ -1,6 +1,9 @@
-// All API calls go through the api-gateway
-// NEXT_PUBLIC_ prefix makes the var available in the browser (not just server-side)
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+// Server-side (SSR/Server Components): uses API_URL — internal Docker network or localhost
+// Client-side (browser):               uses NEXT_PUBLIC_API_URL — must be reachable from browser
+const API_URL =
+  typeof window === 'undefined'
+    ? process.env.API_URL || 'http://localhost:4000'           // server-side
+    : process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'; // client-side
 
 export async function getProducts() {
   const res = await fetch(`${API_URL}/api/products`, { cache: 'no-store' });
