@@ -13,7 +13,7 @@ function OrderConfirmation() {
       <h1>Order Confirmed!</h1>
       <p>Your order has been placed and is being processed.</p>
       <p><strong>Order ID:</strong> {orderId}</p>
-      <p><strong>Total:</strong> ${parseFloat(total).toFixed(2)}</p>
+      <p><strong>Total:</strong> ${total != null ? parseFloat(total).toFixed(2) : '0.00'}</p>
       <br />
       <a href="/">Back to products</a>
     </div>

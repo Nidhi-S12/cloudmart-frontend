@@ -11,6 +11,8 @@ export default function OrderModal({ product, onClose }) {
   const [loading, setLoading]       = useState(false);
   const [error, setError]           = useState('');
 
+  const price = parseFloat(product.price);
+
   async function handleSubmit(e) {
     e.preventDefault();
     if (!customerId.trim()) {
@@ -23,9 +25,8 @@ export default function OrderModal({ product, onClose }) {
 
     try {
       const order = await createOrder(customerId, [
-        { productId: product.id, quantity, price: parseFloat(product.price) },
+        { productId: product.id, quantity, price },
       ]);
-      // Redirect to confirmation page with order details
       router.push(`/orders?id=${order.id}&total=${order.total}`);
     } catch (err) {
       setError('Failed to place order. Is the api-gateway running?');
@@ -55,7 +56,7 @@ export default function OrderModal({ product, onClose }) {
             min="1"
             max={product.stock}
             value={quantity}
-            onChange={(e) => setQuantity(parseInt(e.target.value))}
+            onChange={(e) => setQuantity(parseInt(e.target.value, 10))}
           />
 
           {error && <p style={{ color: '#e94560', marginBottom: '1rem' }}>{error}</p>}
@@ -65,7 +66,7 @@ export default function OrderModal({ product, onClose }) {
               Cancel
             </button>
             <button type="submit" disabled={loading}>
-              {loading ? 'Placing...' : `Order — $${(product.price * quantity).toFixed(2)}`}
+              {loading ? 'Placing...' : `Order — $${(price * quantity).toFixed(2)}`}
             </button>
           </div>
         </form>

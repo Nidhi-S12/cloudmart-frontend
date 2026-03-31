@@ -1,28 +1,26 @@
-// Server-side (SSR/Server Components): uses API_URL — internal Docker network or localhost
-// Client-side (browser):               uses NEXT_PUBLIC_API_URL — must be reachable from browser
 const API_URL =
   typeof window === 'undefined'
-    ? process.env.API_URL || 'http://localhost:4000'           // server-side
-    : process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'; // client-side
+    ? process.env.API_URL || 'http://localhost:4000'
+    : process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
-export async function getProducts() {
-  const res = await fetch(`${API_URL}/api/products`, { cache: 'no-store' });
-  if (!res.ok) throw new Error('Failed to fetch products');
+async function apiFetch(path, options = {}) {
+  const res = await fetch(`${API_URL}${path}`, { cache: 'no-store', ...options });
+  if (!res.ok) throw new Error(`API error ${res.status}: ${path}`);
   return res.json();
 }
 
-export async function getProduct(id) {
-  const res = await fetch(`${API_URL}/api/products/${id}`, { cache: 'no-store' });
-  if (!res.ok) throw new Error('Failed to fetch product');
-  return res.json();
+export function getProducts() {
+  return apiFetch('/api/products');
 }
 
-export async function createOrder(customerId, items) {
-  const res = await fetch(`${API_URL}/api/orders`, {
+export function getProduct(id) {
+  return apiFetch(`/api/products/${id}`);
+}
+
+export function createOrder(customerId, items) {
+  return apiFetch('/api/orders', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ customerId, items }),
   });
-  if (!res.ok) throw new Error('Failed to create order');
-  return res.json();
 }
