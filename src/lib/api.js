@@ -9,12 +9,20 @@ async function apiFetch(path, options = {}) {
   return res.json();
 }
 
-export function getProducts() {
-  return apiFetch('/api/products');
+export function getProducts({ category, search } = {}) {
+  const params = new URLSearchParams();
+  if (category) params.set('category', category);
+  if (search) params.set('search', search);
+  const qs = params.toString();
+  return apiFetch(`/api/products${qs ? `?${qs}` : ''}`);
 }
 
 export function getProduct(id) {
   return apiFetch(`/api/products/${id}`);
+}
+
+export function getCategories() {
+  return apiFetch('/api/products/categories');
 }
 
 export function createOrder(customerId, items) {

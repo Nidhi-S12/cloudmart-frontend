@@ -1,4 +1,6 @@
 import './globals.css';
+import { CartProvider } from '../context/CartContext';
+import Header from '../components/Header';
 
 export const metadata = {
   title: 'CloudMart',
@@ -9,12 +11,10 @@ export default function RootLayout({ children }) {
   return (
     <html lang="en">
       <body>
-        <header>
-          <nav>
-            <a href="/">CloudMart</a>
-          </nav>
-        </header>
-        <main>{children}</main>
+        <CartProvider>
+          <Header />
+          <main>{children}</main>
+        </CartProvider>
       </body>
     </html>
   );
