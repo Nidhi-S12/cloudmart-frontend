@@ -8,6 +8,7 @@ on:
 
 env:
   IMAGE: ghcr.io/${{ github.repository_owner }}/cloudmart/frontend
+  SCAN_TAG: frontend:scan-local
 
 jobs:
   security:
@@ -92,7 +93,7 @@ jobs:
           context: .
           file: ./docker/Dockerfile
           load: true
-          tags: ${{ steps.meta.outputs.tags }}
+          tags: ${{ env.SCAN_TAG }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -100,7 +101,7 @@ jobs:
         uses: aquasecurity/trivy-action@master
         with:
           scan-type: image
-          image-ref: ${{ env.IMAGE }}:latest
+          image-ref: ${{ env.SCAN_TAG }}
           format: sarif
           output: trivy-image.sarif
           severity: CRITICAL,HIGH
@@ -115,7 +116,7 @@ jobs:
       - name: Generate SBOM (Syft)
         uses: anchore/sbom-action@v0
         with:
-          image: ${{ env.IMAGE }}:latest
+          image: ${{ env.SCAN_TAG }}
           format: spdx-json
           output-file: sbom.spdx.json
 
