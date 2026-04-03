@@ -1,5 +1,5 @@
 import './globals.css';
-import { CartProvider } from '../context/CartContext';
+import Providers from '../components/Providers';
 import Header from '../components/Header';
 
 export const metadata = {
@@ -11,10 +11,10 @@ export default function RootLayout({ children }) {
   return (
     <html lang="en">
       <body>
-        <CartProvider>
+        <Providers>
           <Header />
           <main>{children}</main>
-        </CartProvider>
+        </Providers>
       </body>
     </html>
   );

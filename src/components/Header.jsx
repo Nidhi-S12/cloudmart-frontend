@@ -2,12 +2,14 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { useSession, signIn, signOut } from 'next-auth/react';
 import { useCart } from '../context/CartContext';
 
 export default function Header() {
   const [search, setSearch] = useState('');
   const router = useRouter();
   const { totalItems } = useCart();
+  const { data: session } = useSession();
 
   function handleSearch(e) {
     e.preventDefault();
@@ -34,6 +36,27 @@ export default function Header() {
         <a href="/cart" className="cart-link">
           Cart {totalItems > 0 && <span className="cart-badge">{totalItems}</span>}
         </a>
+
+        {session ? (
+          <div className="user-menu">
+            {session.user.image && (
+              <img
+                src={session.user.image}
+                alt={session.user.name}
+                className="user-avatar"
+                width={32}
+                height={32}
+                referrerPolicy="no-referrer"
+              />
+            )}
+            <span className="user-name">{session.user.name}</span>
+            <button onClick={() => signOut()} className="btn-signout">Sign Out</button>
+          </div>
+        ) : (
+          <button onClick={() => signIn('google')} className="btn-signin">
+            Sign In with Google
+          </button>
+        )}
       </nav>
     </header>
   );

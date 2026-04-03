@@ -3,23 +3,20 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
+import { useSession, signIn } from 'next-auth/react';
 import { useCart } from '../../context/CartContext';
 import { createOrder } from '../../lib/api';
 
 export default function CartPage() {
   const { items, removeItem, updateQuantity, clearCart, totalPrice } = useCart();
-  const [customerId, setCustomerId] = useState('');
+  const { data: session } = useSession();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const router = useRouter();
 
   async function handleCheckout(e) {
     e.preventDefault();
-    if (!customerId.trim()) {
-      setError('Customer ID is required');
-      return;
-    }
-    if (items.length === 0) return;
+    if (!session?.user?.email || items.length === 0) return;
 
     setLoading(true);
     setError('');
@@ -30,7 +27,7 @@ export default function CartPage() {
         quantity: item.quantity,
         price: parseFloat(item.price),
       }));
-      const order = await createOrder(customerId, orderItems);
+      const order = await createOrder(session.user.email, orderItems);
       clearCart();
       router.push(`/orders?id=${order.id}&total=${order.total}`);
     } catch (err) {
@@ -100,19 +97,24 @@ export default function CartPage() {
           <span className="total-price">${totalPrice.toFixed(2)}</span>
         </div>
 
-        <form onSubmit={handleCheckout}>
-          <label>Customer ID</label>
-          <input
-            type="text"
-            placeholder="e.g. user-123"
-            value={customerId}
-            onChange={(e) => setCustomerId(e.target.value)}
-          />
-          {error && <p className="error-msg">{error}</p>}
-          <button type="submit" className="btn-checkout" disabled={loading}>
-            {loading ? 'Placing Order...' : 'Place Order'}
-          </button>
-        </form>
+        {session ? (
+          <form onSubmit={handleCheckout}>
+            <p className="checkout-user">
+              Ordering as: <strong>{session.user.email}</strong>
+            </p>
+            {error && <p className="error-msg">{error}</p>}
+            <button type="submit" className="btn-checkout" disabled={loading}>
+              {loading ? 'Placing Order...' : 'Place Order'}
+            </button>
+          </form>
+        ) : (
+          <div className="signin-prompt">
+            <p>Please sign in to checkout</p>
+            <button onClick={() => signIn('google')} className="btn-signin">
+              Sign In with Google
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
