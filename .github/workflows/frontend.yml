@@ -170,4 +170,4 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add environments/production/kustomization.yaml
           git diff --staged --quiet || git commit -m "deploy(frontend): sha-${SHORT_SHA}"
-          git push
+          git pull --rebase && git push

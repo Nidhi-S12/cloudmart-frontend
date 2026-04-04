@@ -36,7 +36,6 @@ WORKDIR /app
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 
 # Copy only what the standalone build needs
-COPY --from=builder /app/public                    ./public
 COPY --from=builder /app/.next/standalone          ./
 COPY --from=builder /app/.next/static              ./.next/static
 
