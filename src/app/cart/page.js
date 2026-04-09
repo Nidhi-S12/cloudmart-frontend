@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
+import Link from 'next/link';
 import { useSession, signIn } from 'next-auth/react';
 import { useCart } from '../../context/CartContext';
 import { createOrder } from '../../lib/api';
@@ -42,7 +43,7 @@ export default function CartPage() {
       <div className="cart-empty">
         <h1>Your Cart is Empty</h1>
         <p>Add some products to get started.</p>
-        <a href="/" className="btn-primary">Browse Products</a>
+        <Link href="/" className="btn-primary">Browse Products</Link>
       </div>
     );
   }

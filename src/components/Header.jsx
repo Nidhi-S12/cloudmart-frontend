@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { useSession, signIn, signOut } from 'next-auth/react';
 import { useCart } from '../context/CartContext';
 
@@ -21,7 +22,7 @@ export default function Header() {
   return (
     <header>
       <nav>
-        <a href="/" className="logo">CloudMart</a>
+        <Link href="/" className="logo">CloudMart</Link>
 
         <form className="search-form" onSubmit={handleSearch}>
           <input
@@ -33,9 +34,9 @@ export default function Header() {
           <button type="submit">Search</button>
         </form>
 
-        <a href="/cart" className="cart-link">
+        <Link href="/cart" className="cart-link">
           Cart {totalItems > 0 && <span className="cart-badge">{totalItems}</span>}
-        </a>
+        </Link>
 
         {session ? (
           <div className="user-menu">
