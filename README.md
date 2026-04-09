@@ -9,8 +9,6 @@
 
 Next.js 14 frontend for the CloudMart e-commerce platform. Handles product browsing, cart management, order placement, and Google OAuth authentication.
 
-**Live at:** `https://tulunad.click`
-
 ---
 
 ## Repositories
@@ -39,22 +37,27 @@ Next.js 14 frontend for the CloudMart e-commerce platform. Handles product brows
 
 ```mermaid
 flowchart TD
-    User(["👤 User"])
-    Home["Home Page\nProduct grid + category sidebar"]
-    Cart["Cart Page\nItems + checkout"]
-    Auth["Google OAuth\nNextAuth.js"]
-    Orders["Orders Page\nOrder history"]
-    API["api-gateway"]
+    classDef user fill:#F59E0B,stroke:#92400e,color:#fff
+    classDef page fill:#059669,stroke:#065f46,color:#fff
+    classDef api fill:#0EA5E9,stroke:#0369a1,color:#fff
+    classDef auth fill:#7C3AED,stroke:#4c1d95,color:#fff
 
-    User -->|"visit tulunad.click"| Home
-    Home -->|"server-side fetch at render"| API
-    User -->|"add to cart"| Cart
-    Cart -->|"cart state is in-memory\nReact Context — no API call"| Cart
-    User -->|"sign in"| Auth
-    Auth -->|"OAuth with Google\nJWT session cookie"| User
-    Cart -->|"checkout\nPOST /api/orders\ncustomerId = session.user.email"| API
-    User -->|"view history"| Orders
-    Orders -->|"GET /api/orders/customer/:id"| API
+    User(["User"]):::user
+    Home["Home\nProduct grid + sidebar"]:::page
+    Cart["Cart\nItems + checkout"]:::page
+    Orders["Orders\nOrder history"]:::page
+    Auth["Google OAuth\nNextAuth.js"]:::auth
+    API["API Gateway"]:::api
+
+    User -->|visit site| Home
+    Home -->|server-side fetch at render| API
+    User -->|add items| Cart
+    Cart -->|in-memory state\nReact Context| Cart
+    User -->|sign in| Auth
+    Auth -->|JWT session cookie| User
+    Cart -->|checkout\ncustomerId = session email| API
+    User -->|view history| Orders
+    Orders -->|fetch orders| API
 ```
 
 ---
@@ -66,27 +69,25 @@ flowchart TD
 ```mermaid
 sequenceDiagram
     participant B as Browser
-    participant FE as Next.js Pod (SSR)
-    participant GW as api-gateway
-    participant PS as product-service
-    participant DB as RDS PostgreSQL
+    participant FE as Next.js Pod
+    participant GW as API Gateway
+    participant PS as Product Service
+    participant DB as PostgreSQL
 
-    B->>FE: GET https://tulunad.click/
-    Note over FE: Server Component runs on the pod
+    B->>FE: GET /
+    Note over FE: Server Component — runs on pod, not browser
     par fetch products
         FE->>GW: GET /api/products
         GW->>PS: GET /products
-        PS->>DB: SELECT * FROM products
-        DB-->>PS: rows
-        PS-->>FE: JSON
+        PS->>DB: SELECT products
+        DB-->>FE: product rows
     and fetch categories
         FE->>GW: GET /api/products/categories
         GW->>PS: GET /products/categories
         PS->>DB: SELECT DISTINCT category
-        DB-->>PS: categories
-        PS-->>FE: JSON
+        DB-->>FE: categories
     end
-    FE-->>B: HTML with products + sidebar
+    FE-->>B: rendered HTML
 ```
 
 ### Checkout flow
@@ -95,22 +96,22 @@ sequenceDiagram
 sequenceDiagram
     participant B as Browser
     participant FE as Next.js
-    participant GW as api-gateway
-    participant OS as order-service
+    participant GW as API Gateway
+    participant OS as Order Service
     participant R as Redis
     participant K as Kafka
 
     B->>FE: click Checkout
-    Note over B,FE: customerId = session.user.email (from JWT cookie)
-    FE->>GW: POST /api/orders {customerId, items}
+    Note over FE: customerId = session.user.email
+    FE->>GW: POST /api/orders
     GW->>OS: POST /orders
     par
-        OS->>R: SET order:<uuid> EX 86400
+        OS->>R: store order with 24h TTL
     and
-        OS->>K: PRODUCE order.created
+        OS->>K: publish order.created event
     end
-    OS-->>FE: 201 {id, total, status: pending}
-    FE-->>B: order confirmation modal
+    OS-->>FE: 201 created
+    FE-->>B: confirmation modal
 ```
 
 ### Google OAuth login
@@ -118,40 +119,38 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     participant B as Browser
-    participant Traefik
-    participant FE as Next.js (NextAuth)
+    participant T as Traefik
+    participant FE as Next.js / NextAuth
     participant G as Google
 
-    B->>Traefik: GET /api/auth/signin/google
-    Note over Traefik: priority 20 rule → frontend:3000
-    Traefik->>FE: forward request
-    FE-->>B: 302 redirect to accounts.google.com
-    B->>G: user authenticates + approves
-    G-->>B: 302 redirect to /api/auth/callback/google
-    B->>Traefik: GET /api/auth/callback/google
-    Traefik->>FE: forward (priority 20 rule)
+    B->>T: GET /api/auth/signin/google
+    Note over T: priority 20 rule → frontend
+    T->>FE: forward
+    FE-->>B: redirect to Google
+    B->>G: user authenticates
+    G-->>B: redirect to /api/auth/callback/google
+    B->>T: GET /api/auth/callback/google
+    T->>FE: forward (priority 20 rule)
     FE->>G: exchange code for tokens
-    G-->>FE: access token + id token
-    FE-->>B: Set-Cookie: next-auth.session-token (signed JWT)
-    Note over B: useSession() now returns {user: {name, email, image}}
+    G-->>FE: access token
+    FE-->>B: Set session cookie (signed JWT)
+    Note over B: useSession() returns user info
 ```
 
-> **Why priority 20?** Without this rule, Traefik routes `/api/auth/*` to the api-gateway (priority 10 rule), which returns 404. The higher-priority rule ensures NextAuth callbacks always reach the frontend.
+> **Why priority 20?** Without this Traefik rule, `/api/auth/*` would route to the api-gateway (priority 10), which returns 404. The higher-priority rule ensures NextAuth callbacks always reach the frontend.
 
 ---
 
 ## Authentication
 
-Google OAuth via NextAuth.js v5 with App Router.
-
-**Why NextAuth?** Handles the full OAuth flow — redirects, token exchange, session management — without writing auth logic or storing credentials.
+Google OAuth via NextAuth.js v5 with App Router. Handles the full OAuth flow — redirects, token exchange, session management — without writing auth logic from scratch.
 
 | Variable | Source | Description |
 |----------|--------|-------------|
 | `GOOGLE_CLIENT_ID` | AWS Secrets Manager | Google Cloud Console OAuth 2.0 |
 | `GOOGLE_CLIENT_SECRET` | AWS Secrets Manager | Google Cloud Console OAuth 2.0 |
-| `NEXTAUTH_SECRET` | AWS Secrets Manager | Signs JWT session cookies (32 random chars) |
-| `NEXTAUTH_URL` | Kustomize patch | `https://tulunad.click` |
+| `NEXTAUTH_SECRET` | AWS Secrets Manager | Signs JWT session cookies |
+| `NEXTAUTH_URL` | Kustomize patch | Full public URL of the app |
 
 ---
 
@@ -159,31 +158,35 @@ Google OAuth via NextAuth.js v5 with App Router.
 
 ```mermaid
 flowchart TD
-    Push["git push to main"]
+    classDef git fill:#24292e,stroke:#000,color:#fff
+    classDef sec fill:#EF4444,stroke:#991b1b,color:#fff
+    classDef build fill:#0EA5E9,stroke:#0369a1,color:#fff
+    classDef cd fill:#EF7B4D,stroke:#9a3412,color:#fff
+
+    Push["git push"]:::git
 
     subgraph Security["Security Scans"]
-        GL["Gitleaks\nsecrets scan"]
-        SG["Semgrep\nSAST — JS/React, OWASP"]
-        TV1["Trivy\ndependency CVEs"]
+        GL["Gitleaks"]:::sec
+        SG["Semgrep"]:::sec
+        TV1["Trivy\ndependency scan"]:::sec
     end
 
-    subgraph Build["Build & Push"]
-        D1["Stage 1: deps\nnpm ci"]
-        D2["Stage 2: builder\nnext build — standalone output"]
-        D3["Stage 3: runtime\ncopy .next/standalone only\nnon-root user\n~150MB final image"]
-        GHCR["push to GHCR\n:sha-abc1234"]
-        TV2["Trivy image scan"]
+    subgraph Build["Docker Build — 3 stages"]
+        D1["deps\nnpm ci"]:::build
+        D2["builder\nnext build — standalone"]:::build
+        D3["runtime\ncopy standalone only\nnon-root user"]:::build
+        GHCR["push to registry\ntagged with git SHA"]:::build
+        TV2["Trivy image scan"]:::sec
     end
 
     subgraph GitOps["Update GitOps"]
-        KZ["kustomize edit set image"]
-        GC["git commit + pull --rebase + push"]
-        ACD["ArgoCD rolling update\nzero downtime"]
+        KZ["kustomize edit set image"]:::cd
+        GC["git commit + rebase + push"]:::cd
+        ACD["ArgoCD\nrolling update — zero downtime"]:::cd
     end
 
     Push --> Security
-    Security -->|all pass| D1 --> D2 --> D3 --> GHCR --> TV2
-    TV2 --> KZ --> GC --> ACD
+    Security -->|all pass| D1 --> D2 --> D3 --> GHCR --> TV2 --> KZ --> GC --> ACD
 ```
 
 ---
@@ -193,7 +196,7 @@ flowchart TD
 ```
 src/
 ├── app/
-│   ├── page.js                          # Home — product grid + category sidebar (SSR)
+│   ├── page.js                          # Home — product grid + sidebar (SSR)
 │   ├── cart/page.js                     # Cart — items, quantities, checkout
 │   ├── orders/page.js                   # Order history
 │   ├── layout.js                        # Root layout — wraps with Providers
@@ -201,8 +204,8 @@ src/
 │       ├── auth/[...nextauth]/route.js  # NextAuth handler (Google OAuth)
 │       └── health/route.js             # Health check for K8s probes
 ├── components/
-│   ├── Header.jsx           # Nav — sign in/out button, cart link
-│   ├── ProductCard.jsx      # Individual product tile
+│   ├── Header.jsx           # Nav — sign in/out, cart link
+│   ├── ProductCard.jsx      # Product tile
 │   ├── CategorySidebar.jsx  # Category filter
 │   ├── OrderModal.jsx       # Order confirmation modal
 │   └── Providers.jsx        # SessionProvider + CartProvider wrapper
@@ -219,7 +222,7 @@ src/
 | Variable | Set by | Description |
 |----------|--------|-------------|
 | `NEXT_PUBLIC_API_URL` | Kustomize patch | API base URL — baked into JS bundle at build time |
-| `NEXTAUTH_URL` | Kustomize patch | `https://tulunad.click` — required by NextAuth |
+| `NEXTAUTH_URL` | Kustomize patch | Full public URL — required by NextAuth |
 | `GOOGLE_CLIENT_ID` | External Secrets (AWS SM) | Google OAuth client ID |
 | `GOOGLE_CLIENT_SECRET` | External Secrets (AWS SM) | Google OAuth client secret |
 | `NEXTAUTH_SECRET` | External Secrets (AWS SM) | JWT signing secret |
