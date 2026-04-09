@@ -37,134 +37,154 @@ Next.js 14 frontend for the CloudMart e-commerce platform. Handles product brows
 
 ## Application Flow
 
-```
-User visits tulunad.click
-        │
-        ▼
-Next.js Server Component (page.js)
-        │  fetch /api/products  (server-side at render time)
-        ▼
-API Gateway  →  Product Service  →  RDS PostgreSQL
-        │
-        │  returns product list
-        ▼
-Page renders with products + category sidebar
-        │
-User adds to cart (client-side state — React Context)
-        │
-User signs in with Google
-        │
-        ▼
-NextAuth.js  (/api/auth/*)
-        │  OAuth 2.0 flow via Google
-        │  session stored in signed JWT cookie
-        ▼
-User is authenticated — session.user.email available
-        │
-User proceeds to checkout
-        │
-        ▼
-POST /api/orders  →  API Gateway  →  Order Service
-        │  customerId = session.user.email
-        ▼
-Order created → stored in Redis → Kafka event published
+```mermaid
+flowchart TD
+    User(["👤 User"])
+    Home["Home Page\nProduct grid + category sidebar"]
+    Cart["Cart Page\nItems + checkout"]
+    Auth["Google OAuth\nNextAuth.js"]
+    Orders["Orders Page\nOrder history"]
+    API["api-gateway"]
+
+    User -->|"visit tulunad.click"| Home
+    Home -->|"server-side fetch at render"| API
+    User -->|"add to cart"| Cart
+    Cart -->|"cart state is in-memory\nReact Context — no API call"| Cart
+    User -->|"sign in"| Auth
+    Auth -->|"OAuth with Google\nJWT session cookie"| User
+    Cart -->|"checkout\nPOST /api/orders\ncustomerId = session.user.email"| API
+    User -->|"view history"| Orders
+    Orders -->|"GET /api/orders/customer/:id"| API
 ```
 
 ---
 
-## Data Flow
+## Data Flows
 
 ### Page load — product listing
 
-```
-Browser visits tulunad.click
-        │
-        ▼  (server component — runs on the pod, not the browser)
-app/page.js  awaits Promise.all([getProducts(), getCategories()])
-        │
-        ▼  internal K8s DNS
-fetch("http://api-gateway:3000/api/products")
-fetch("http://api-gateway:3000/api/products/categories")
-        │
-        ▼
-API Gateway  →  product-service:8000/products
-                product-service:8000/products/categories
-        │
-        ▼  SQL queries to RDS
-PostgreSQL returns rows  →  JSON  →  Next.js renders HTML  →  Browser
+```mermaid
+sequenceDiagram
+    participant B as Browser
+    participant FE as Next.js Pod (SSR)
+    participant GW as api-gateway
+    participant PS as product-service
+    participant DB as RDS PostgreSQL
+
+    B->>FE: GET https://tulunad.click/
+    Note over FE: Server Component runs on the pod
+    par fetch products
+        FE->>GW: GET /api/products
+        GW->>PS: GET /products
+        PS->>DB: SELECT * FROM products
+        DB-->>PS: rows
+        PS-->>FE: JSON
+    and fetch categories
+        FE->>GW: GET /api/products/categories
+        GW->>PS: GET /products/categories
+        PS->>DB: SELECT DISTINCT category
+        DB-->>PS: categories
+        PS-->>FE: JSON
+    end
+    FE-->>B: HTML with products + sidebar
 ```
 
-### Cart (client-side only)
+### Checkout flow
 
-```
-User clicks "Add to Cart"
-        │
-        ▼
-CartContext (React Context — in-memory, no server call)
-        │  stores { productId, name, price, quantity }
-        ▼
-Cart badge in Header updates  (useContext)
-        │
-User goes to /cart
-        ▼
-CartContext data renders in cart page
-        │
-User clicks checkout
-        ▼
-POST /api/orders  { customerId: session.user.email, items: cart }
+```mermaid
+sequenceDiagram
+    participant B as Browser
+    participant FE as Next.js
+    participant GW as api-gateway
+    participant OS as order-service
+    participant R as Redis
+    participant K as Kafka
+
+    B->>FE: click Checkout
+    Note over B,FE: customerId = session.user.email (from JWT cookie)
+    FE->>GW: POST /api/orders {customerId, items}
+    GW->>OS: POST /orders
+    par
+        OS->>R: SET order:<uuid> EX 86400
+    and
+        OS->>K: PRODUCE order.created
+    end
+    OS-->>FE: 201 {id, total, status: pending}
+    FE-->>B: order confirmation modal
 ```
 
 ### Google OAuth login
 
+```mermaid
+sequenceDiagram
+    participant B as Browser
+    participant Traefik
+    participant FE as Next.js (NextAuth)
+    participant G as Google
+
+    B->>Traefik: GET /api/auth/signin/google
+    Note over Traefik: priority 20 rule → frontend:3000
+    Traefik->>FE: forward request
+    FE-->>B: 302 redirect to accounts.google.com
+    B->>G: user authenticates + approves
+    G-->>B: 302 redirect to /api/auth/callback/google
+    B->>Traefik: GET /api/auth/callback/google
+    Traefik->>FE: forward (priority 20 rule)
+    FE->>G: exchange code for tokens
+    G-->>FE: access token + id token
+    FE-->>B: Set-Cookie: next-auth.session-token (signed JWT)
+    Note over B: useSession() now returns {user: {name, email, image}}
 ```
-User clicks "Sign in with Google"
-        │
-        ▼
-NextAuth  GET /api/auth/signin/google
-        │  302 redirect to Google
-        ▼
-accounts.google.com  user approves
-        │  302 redirect back to tulunad.click/api/auth/callback/google
-        ▼
-Traefik routes /api/auth/* to frontend:3000  (priority 20 rule)
-        │
-        ▼
-NextAuth exchanges auth code for tokens with Google
-NextAuth creates session  →  signed JWT cookie (using NEXTAUTH_SECRET)
-        │
-        ▼
-useSession() on any page now returns { user: { name, email, image } }
-session.user.email used as customerId for orders
-```
+
+> **Why priority 20?** Without this rule, Traefik routes `/api/auth/*` to the api-gateway (priority 10 rule), which returns 404. The higher-priority rule ensures NextAuth callbacks always reach the frontend.
+
+---
 
 ## Authentication
 
-Google OAuth is implemented with NextAuth.js v5 using the App Router.
+Google OAuth via NextAuth.js v5 with App Router.
 
-**Why NextAuth?** It handles the entire OAuth flow — redirects, token exchange, session management — without needing to store credentials or build auth logic from scratch.
+**Why NextAuth?** Handles the full OAuth flow — redirects, token exchange, session management — without writing auth logic or storing credentials.
 
-**How it works:**
+| Variable | Source | Description |
+|----------|--------|-------------|
+| `GOOGLE_CLIENT_ID` | AWS Secrets Manager | Google Cloud Console OAuth 2.0 |
+| `GOOGLE_CLIENT_SECRET` | AWS Secrets Manager | Google Cloud Console OAuth 2.0 |
+| `NEXTAUTH_SECRET` | AWS Secrets Manager | Signs JWT session cookies (32 random chars) |
+| `NEXTAUTH_URL` | Kustomize patch | `https://tulunad.click` |
 
+---
+
+## CI Pipeline
+
+```mermaid
+flowchart TD
+    Push["git push to main"]
+
+    subgraph Security["Security Scans"]
+        GL["Gitleaks\nsecrets scan"]
+        SG["Semgrep\nSAST — JS/React, OWASP"]
+        TV1["Trivy\ndependency CVEs"]
+    end
+
+    subgraph Build["Build & Push"]
+        D1["Stage 1: deps\nnpm ci"]
+        D2["Stage 2: builder\nnext build — standalone output"]
+        D3["Stage 3: runtime\ncopy .next/standalone only\nnon-root user\n~150MB final image"]
+        GHCR["push to GHCR\n:sha-abc1234"]
+        TV2["Trivy image scan"]
+    end
+
+    subgraph GitOps["Update GitOps"]
+        KZ["kustomize edit set image"]
+        GC["git commit + pull --rebase + push"]
+        ACD["ArgoCD rolling update\nzero downtime"]
+    end
+
+    Push --> Security
+    Security -->|all pass| D1 --> D2 --> D3 --> GHCR --> TV2
+    TV2 --> KZ --> GC --> ACD
 ```
-1. User clicks "Sign in with Google"
-2. NextAuth redirects to accounts.google.com
-3. User approves → Google redirects back to /api/auth/callback/google
-4. NextAuth exchanges the code for tokens, creates a session (signed JWT cookie)
-5. useSession() hook gives any client component access to session.user
-```
-
-**Traefik routing note:** The `/api/auth/*` path must be routed to the frontend (NextAuth handler), not the api-gateway. This is handled in cloudmart-gitops with a higher-priority IngressRoute rule (priority 20 vs 10).
-
-### Required Secrets
-
-Stored in AWS Secrets Manager (`cloudmart/google-oauth`) and injected as environment variables via External Secrets Operator:
-
-| Variable | Description |
-|----------|------------|
-| `GOOGLE_CLIENT_ID` | From Google Cloud Console OAuth 2.0 credentials |
-| `GOOGLE_CLIENT_SECRET` | From Google Cloud Console OAuth 2.0 credentials |
-| `NEXTAUTH_SECRET` | Random 32-character string — used to sign JWT session cookies |
-| `NEXTAUTH_URL` | Set to `https://tulunad.click` via Kustomize patch |
 
 ---
 
@@ -173,81 +193,24 @@ Stored in AWS Secrets Manager (`cloudmart/google-oauth`) and injected as environ
 ```
 src/
 ├── app/
-│   ├── page.js              # Home — product grid with category sidebar
-│   ├── cart/page.js         # Cart — items, quantities, checkout
-│   ├── orders/page.js       # Order history
-│   ├── layout.js            # Root layout — wraps all pages with Providers
+│   ├── page.js                          # Home — product grid + category sidebar (SSR)
+│   ├── cart/page.js                     # Cart — items, quantities, checkout
+│   ├── orders/page.js                   # Order history
+│   ├── layout.js                        # Root layout — wraps with Providers
 │   └── api/
-│       ├── auth/[...nextauth]/route.js   # NextAuth handler (Google OAuth)
-│       └── health/route.js              # Health check endpoint
-│
+│       ├── auth/[...nextauth]/route.js  # NextAuth handler (Google OAuth)
+│       └── health/route.js             # Health check for K8s probes
 ├── components/
-│   ├── Header.jsx            # Navigation — sign in/out, cart link
-│   ├── ProductCard.jsx       # Individual product tile
-│   ├── CategorySidebar.jsx   # Category filter sidebar
-│   ├── OrderModal.jsx        # Order confirmation modal
-│   └── Providers.jsx         # SessionProvider + CartProvider wrapper
-│
+│   ├── Header.jsx           # Nav — sign in/out button, cart link
+│   ├── ProductCard.jsx      # Individual product tile
+│   ├── CategorySidebar.jsx  # Category filter
+│   ├── OrderModal.jsx       # Order confirmation modal
+│   └── Providers.jsx        # SessionProvider + CartProvider wrapper
 ├── context/
-│   └── CartContext.jsx       # Client-side cart state (React Context)
-│
+│   └── CartContext.jsx      # Client-side cart state (React Context)
 └── lib/
-    └── api.js                # fetch wrappers for all API calls
+    └── api.js               # fetch wrappers for all API calls
 ```
-
----
-
-## CI Pipeline
-
-```
-Push to main
-    │
-    ▼
-1. Security Scans
-   ├── Gitleaks   — scans for accidentally committed secrets
-   ├── Semgrep    — SAST (JavaScript/React rules, OWASP Top 10)
-   └── Trivy      — dependency CVE scan
-    │
-    ▼
-2. Build & Push
-   ├── docker build  (multi-stage — deps → Next.js build → minimal runtime)
-   ├── docker push   → ghcr.io/nidhi-s12/cloudmart/frontend:sha-<7-char-sha>
-   └── Trivy image scan
-    │
-    ▼
-3. Update GitOps
-   ├── Clone cloudmart-gitops
-   ├── kustomize edit set image  (updates frontend image tag)
-   └── git commit + pull --rebase + push
-        │
-        ▼
-   ArgoCD deploys new image to EKS (zero-downtime rolling update)
-```
-
----
-
-## Docker Build
-
-The Dockerfile uses a 3-stage build to keep the final image small:
-
-```
-Stage 1 — deps
-  node:20-alpine
-  npm ci  (installs exact versions from package-lock.json)
-
-Stage 2 — builder
-  node:20-alpine
-  copies node_modules from stage 1
-  runs next build  (output: standalone)
-
-Stage 3 — runtime
-  node:20-alpine
-  copies only .next/standalone and .next/static
-  runs as non-root user (appuser)
-  final image is ~150MB vs ~1GB with full node_modules
-```
-
-`output: 'standalone'` in `next.config.js` tells Next.js to produce a self-contained server bundle — no need to copy `node_modules` into the final image.
 
 ---
 
@@ -256,12 +219,12 @@ Stage 3 — runtime
 | Variable | Set by | Description |
 |----------|--------|-------------|
 | `NEXT_PUBLIC_API_URL` | Kustomize patch | API base URL — baked into JS bundle at build time |
-| `NEXTAUTH_URL` | Kustomize patch | Full URL of the app — required by NextAuth |
+| `NEXTAUTH_URL` | Kustomize patch | `https://tulunad.click` — required by NextAuth |
 | `GOOGLE_CLIENT_ID` | External Secrets (AWS SM) | Google OAuth client ID |
 | `GOOGLE_CLIENT_SECRET` | External Secrets (AWS SM) | Google OAuth client secret |
 | `NEXTAUTH_SECRET` | External Secrets (AWS SM) | JWT signing secret |
 
-`NEXT_PUBLIC_*` variables are baked into the JavaScript bundle at build time by Next.js. All others are injected at runtime via Kubernetes Secrets.
+`NEXT_PUBLIC_*` vars are baked into the JS bundle at build time. All others are injected at pod startup via K8s Secrets.
 
 ---
 
@@ -270,8 +233,6 @@ Stage 3 — runtime
 ```bash
 npm install
 
-# Create .env.local with your own values
-cp .env.example .env.local  # or create manually:
 cat > .env.local <<EOF
 NEXT_PUBLIC_API_URL=http://localhost:4000
 NEXTAUTH_URL=http://localhost:3000
@@ -284,4 +245,4 @@ npm run dev
 # → http://localhost:3000
 ```
 
-> The backend services must be running (or use the Docker Compose setup in cloudmart-services) for API calls to work.
+> Backend services must be running. Use the Docker Compose setup in cloudmart-services.
