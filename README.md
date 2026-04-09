@@ -1,5 +1,12 @@
 # CloudMart Frontend
 
+![frontend CI](https://github.com/Nidhi-S12/cloudmart-frontend/actions/workflows/frontend.yml/badge.svg)
+![Next.js](https://img.shields.io/badge/Next.js-14-000000?logo=next.js&logoColor=white)
+![NextAuth](https://img.shields.io/badge/NextAuth.js-v5-purple?logo=auth0&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker-multi--stage-2496ED?logo=docker&logoColor=white)
+![Deployed on EKS](https://img.shields.io/badge/Deployed%20on-EKS-FF9900?logo=amazon-aws&logoColor=white)
+![License](https://img.shields.io/badge/license-MIT-green)
+
 Next.js 14 frontend for the CloudMart e-commerce platform. Handles product browsing, cart management, order placement, and Google OAuth authentication.
 
 **Live at:** `https://tulunad.click`
@@ -64,6 +71,71 @@ Order created → stored in Redis → Kafka event published
 ```
 
 ---
+
+## Data Flow
+
+### Page load — product listing
+
+```
+Browser visits tulunad.click
+        │
+        ▼  (server component — runs on the pod, not the browser)
+app/page.js  awaits Promise.all([getProducts(), getCategories()])
+        │
+        ▼  internal K8s DNS
+fetch("http://api-gateway:3000/api/products")
+fetch("http://api-gateway:3000/api/products/categories")
+        │
+        ▼
+API Gateway  →  product-service:8000/products
+                product-service:8000/products/categories
+        │
+        ▼  SQL queries to RDS
+PostgreSQL returns rows  →  JSON  →  Next.js renders HTML  →  Browser
+```
+
+### Cart (client-side only)
+
+```
+User clicks "Add to Cart"
+        │
+        ▼
+CartContext (React Context — in-memory, no server call)
+        │  stores { productId, name, price, quantity }
+        ▼
+Cart badge in Header updates  (useContext)
+        │
+User goes to /cart
+        ▼
+CartContext data renders in cart page
+        │
+User clicks checkout
+        ▼
+POST /api/orders  { customerId: session.user.email, items: cart }
+```
+
+### Google OAuth login
+
+```
+User clicks "Sign in with Google"
+        │
+        ▼
+NextAuth  GET /api/auth/signin/google
+        │  302 redirect to Google
+        ▼
+accounts.google.com  user approves
+        │  302 redirect back to tulunad.click/api/auth/callback/google
+        ▼
+Traefik routes /api/auth/* to frontend:3000  (priority 20 rule)
+        │
+        ▼
+NextAuth exchanges auth code for tokens with Google
+NextAuth creates session  →  signed JWT cookie (using NEXTAUTH_SECRET)
+        │
+        ▼
+useSession() on any page now returns { user: { name, email, image } }
+session.user.email used as customerId for orders
+```
 
 ## Authentication
 
