@@ -7,7 +7,7 @@
 ![Deployed on EKS](https://img.shields.io/badge/Deployed%20on-EKS-FF9900?logo=amazon-aws&logoColor=white)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
-Next.js 14 frontend for the CloudMart e-commerce platform. Handles product browsing, cart management, order placement, and Google OAuth authentication.
+Next.js 14 frontend for the CloudMart e-commerce platform. Handles product browsing with sort/pagination, product detail pages, persistent cart, order placement with toast notifications, order history, and Google OAuth authentication.
 
 ---
 
@@ -41,23 +41,28 @@ flowchart TD
     classDef page fill:#059669,stroke:#065f46,color:#fff
     classDef api fill:#0EA5E9,stroke:#0369a1,color:#fff
     classDef auth fill:#7C3AED,stroke:#4c1d95,color:#fff
+    classDef store fill:#7C3AED,stroke:#4c1d95,color:#fff
 
     User(["User"]):::user
-    Home["Home\nProduct grid + sidebar"]:::page
+    Home["Home\nProduct grid + sort + pagination"]:::page
+    Detail["Product Detail\nFull info + stock indicator"]:::page
     Cart["Cart\nItems + checkout"]:::page
-    Orders["Orders\nOrder history"]:::page
+    Orders["Orders\nOrder confirmation + history"]:::page
     Auth["Google OAuth\nNextAuth.js"]:::auth
     API["API Gateway"]:::api
+    LS["localStorage\ncart persists across reloads"]:::store
 
     User -->|visit site| Home
     Home -->|server-side fetch at render| API
+    User -->|click product| Detail
+    Detail -->|add to cart with toast| LS
     User -->|add items| Cart
-    Cart -->|in-memory state\nReact Context| Cart
+    Cart -->|synced with localStorage| LS
     User -->|sign in| Auth
-    Auth -->|JWT session cookie| User
+    Auth -->|JWT session cookie\ncart survives redirect| User
     Cart -->|checkout\ncustomerId = session email| API
     User -->|view history| Orders
-    Orders -->|fetch orders| API
+    Orders -->|fetch orders by email| API
 ```
 
 ---
@@ -111,7 +116,7 @@ sequenceDiagram
         OS->>K: publish order.created event
     end
     OS-->>FE: 201 created
-    FE-->>B: confirmation modal
+    FE-->>B: redirect to /orders?id=xxx
 ```
 
 ### Google OAuth login
@@ -196,24 +201,37 @@ flowchart TD
 ```
 src/
 ├── app/
-│   ├── page.js                          # Home — product grid + sidebar (SSR)
+│   ├── page.js                          # Home — product grid + sort + pagination (SSR)
+│   ├── products/[id]/page.js            # Product detail — full info, stock, add to cart
 │   ├── cart/page.js                     # Cart — items, quantities, checkout
-│   ├── orders/page.js                   # Order history
-│   ├── layout.js                        # Root layout — wraps with Providers
+│   ├── orders/page.js                   # Order confirmation (?id=) + order history
+│   ├── layout.js                        # Root layout — wraps with Providers + Footer
 │   └── api/
 │       ├── auth/[...nextauth]/route.js  # NextAuth handler (Google OAuth)
 │       └── health/route.js             # Health check for K8s probes
 ├── components/
-│   ├── Header.jsx           # Nav — sign in/out, cart link
-│   ├── ProductCard.jsx      # Product tile
-│   ├── CategorySidebar.jsx  # Category filter
-│   ├── OrderModal.jsx       # Order confirmation modal
-│   └── Providers.jsx        # SessionProvider + CartProvider wrapper
+│   ├── Header.jsx           # Nav — sign in/out, cart, My Orders (uses Next.js Link)
+│   ├── ProductCard.jsx      # Clickable product tile with toast + stock indicator
+│   ├── CategorySidebar.jsx  # Category filter (client-side navigation via Link)
+│   ├── SortBar.jsx          # Client-side sort (price, rating, name) + pagination
+│   ├── Toast.jsx            # Toast notification system (React Context + auto-dismiss)
+│   ├── Footer.jsx           # Site footer with tech stack info
+│   └── Providers.jsx        # SessionProvider + CartProvider + ToastProvider
 ├── context/
-│   └── CartContext.jsx      # Client-side cart state (React Context)
+│   └── CartContext.jsx      # Cart state — synced to localStorage, survives reloads + OAuth
 └── lib/
-    └── api.js               # fetch wrappers for all API calls
+    └── api.js               # fetch wrappers — products, orders, order history
 ```
+
+### Key design decisions
+
+**localStorage cart** — Cart state is persisted to `localStorage` and rehydrated on mount. This solves two problems: (1) Google OAuth redirects cause a full page reload, which would destroy in-memory React state, and (2) users expect their cart to survive browser refreshes.
+
+**Next.js Link everywhere** — All internal navigation uses `<Link>` instead of `<a>` tags. `<a>` causes a full page reload (destroying React state), while `<Link>` does client-side navigation (state preserved). This was a bug we discovered — clicking "Cart" would clear the cart because the page reloaded.
+
+**Toast notifications** — Uses React Context (`ToastProvider`) so any component can trigger a toast. Auto-dismisses after 2.5 seconds with a slide-in/fade-out animation.
+
+**Sort + pagination** — Client-side sorting and pagination via `SortBar` component. Products are fetched once from the server (SSR), then sorted/paginated in the browser. 20 items per page.
 
 ---
 
