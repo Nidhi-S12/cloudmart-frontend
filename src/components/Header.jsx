@@ -34,6 +34,8 @@ export default function Header() {
           <button type="submit">Search</button>
         </form>
 
+        <Link href="/orders" className="nav-link">My Orders</Link>
+
         <Link href="/cart" className="cart-link">
           Cart {totalItems > 0 && <span className="cart-badge">{totalItems}</span>}
         </Link>

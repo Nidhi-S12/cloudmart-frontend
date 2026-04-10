@@ -1,5 +1,7 @@
 'use client';
 
+import Link from 'next/link';
+
 export default function CategorySidebar({ categories, active }) {
   function formatCategory(cat) {
     return cat
@@ -13,18 +15,18 @@ export default function CategorySidebar({ categories, active }) {
       <h3>Categories</h3>
       <ul>
         <li>
-          <a href="/" className={!active ? 'active' : ''}>
+          <Link href="/" className={!active ? 'active' : ''}>
             All Products
-          </a>
+          </Link>
         </li>
         {categories.map((cat) => (
           <li key={cat}>
-            <a
+            <Link
               href={`/?category=${cat}`}
               className={active === cat ? 'active' : ''}
             >
               {formatCategory(cat)}
-            </a>
+            </Link>
           </li>
         ))}
       </ul>

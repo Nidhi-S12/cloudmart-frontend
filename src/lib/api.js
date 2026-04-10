@@ -32,3 +32,11 @@ export function createOrder(customerId, items) {
     body: JSON.stringify({ customerId, items }),
   });
 }
+
+export function getOrder(id) {
+  return apiFetch(`/api/orders/${id}`);
+}
+
+export function getOrdersByCustomer(email) {
+  return apiFetch(`/api/orders?customer=${encodeURIComponent(email)}`);
+}

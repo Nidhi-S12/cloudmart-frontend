@@ -1,5 +1,5 @@
-import ProductCard from '../components/ProductCard';
 import CategorySidebar from '../components/CategorySidebar';
+import SortBar from '../components/SortBar';
 import { getProducts, getCategories } from '../lib/api';
 
 export default async function HomePage({ searchParams }) {
@@ -39,13 +39,9 @@ export default async function HomePage({ searchParams }) {
         </div>
 
         {products.length === 0 ? (
-          <p className="error">No products found.</p>
+          <p className="no-results">No products found.</p>
         ) : (
-          <div className="product-grid">
-            {products.map((product) => (
-              <ProductCard key={product.id} product={product} />
-            ))}
-          </div>
+          <SortBar products={products} />
         )}
       </div>
     </div>

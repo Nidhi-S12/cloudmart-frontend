@@ -25,6 +25,8 @@ export default function CartPage() {
     try {
       const orderItems = items.map((item) => ({
         productId: item.id,
+        name: item.name,
+        image_url: item.image_url,
         quantity: item.quantity,
         price: parseFloat(item.price),
       }));

@@ -1,6 +1,7 @@
 import './globals.css';
 import Providers from '../components/Providers';
 import Header from '../components/Header';
+import Footer from '../components/Footer';
 
 export const metadata = {
   title: 'CloudMart',
@@ -14,6 +15,7 @@ export default function RootLayout({ children }) {
         <Providers>
           <Header />
           <main>{children}</main>
+          <Footer />
         </Providers>
       </body>
     </html>
